@@ -1,9 +1,11 @@
-// 使用 Netlify Blob 永久存储，数据不会丢失
+// 回退到文件存储版本
 import type { Handler, HandlerEvent } from '@netlify/functions';
-import { getDeployStore } from '@netlify/blobs';
 import { nanoid } from 'nanoid';
+import path from 'path';
+import fs from 'fs';
 
-const store = getDeployStore({ name: 'groups' });
+const DATA_DIR = '/tmp/data';
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 interface Group {
   id: string;
@@ -15,22 +17,23 @@ interface Group {
 }
 
 async function findGroup(id: string): Promise<Group | null> {
+  const file = path.join(DATA_DIR, `${id}.json`);
   try {
-    return await store.get(id, { type: 'json' }) as Group | null;
+    const raw = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(raw);
   } catch { return null; }
 }
 
 async function saveGroup(group: Group): Promise<void> {
-  // 存群组数据
-  await store.setJSON(group.id, group);
-
-  // 更新索引
-  const index: { id: string; name: string; members: string[]; createdAt: string }[] =
-    (await store.get('_index', { type: 'json' })) || [];
+  const file = path.join(DATA_DIR, `${group.id}.json`);
+  fs.writeFileSync(file, JSON.stringify(group));
+  const indexFile = path.join(DATA_DIR, '_index.json');
+  let index: { id: string; name: string; members: string[]; createdAt: string }[] = [];
+  try { index = JSON.parse(fs.readFileSync(indexFile, 'utf-8')); } catch {}
   const existing = index.findIndex(g => g.id === group.id);
   const entry = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
   if (existing >= 0) index[existing] = entry; else index.push(entry);
-  await store.setJSON('_index', index);
+  fs.writeFileSync(indexFile, JSON.stringify(index));
 }
 
 async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number; body: string; headers?: Record<string, string> }> {
@@ -51,7 +54,6 @@ async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number;
   try {
     const body = event.body ? JSON.parse(event.body) : {};
 
-    // POST /api/groups — 创建群组
     if (method === 'POST' && pathname === '/api/groups') {
       const { name, members } = body;
       if (!name || !members || !Array.isArray(members) || members.length === 0) {
@@ -67,7 +69,6 @@ async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number;
       return { statusCode: 200, body: JSON.stringify({ id: group.id, ...group }), headers: corsHeaders };
     }
 
-    // GET /api/groups/:id — 获取群组
     const getMatch = pathname.match(/^\/api\/groups\/([^/]+)$/);
     if (method === 'GET' && getMatch) {
       const group = await findGroup(getMatch[1]);
@@ -75,7 +76,6 @@ async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number;
       return { statusCode: 200, body: JSON.stringify(group), headers: corsHeaders };
     }
 
-    // PUT /api/groups/:id/schedule — 更新日程
     const schedMatch = pathname.match(/^\/api\/groups\/([^/]+)\/schedule$/);
     if (method === 'PUT' && schedMatch) {
       const { member, dateKey, busySlots } = body;
@@ -91,7 +91,6 @@ async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number;
       return { statusCode: 200, body: JSON.stringify(group), headers: corsHeaders };
     }
 
-    // PUT /api/groups/:id/mood — 更新心情
     const moodMatch = pathname.match(/^\/api\/groups\/([^/]+)\/mood$/);
     if (method === 'PUT' && moodMatch) {
       const { member, dateKey, mood } = body;
