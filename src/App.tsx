@@ -96,7 +96,8 @@ export default function App() {
   useEffect(() => {
     if (group && selectedMember && activeTab === 'my') {
       const todayKey = new Date().toISOString().slice(0, 10);
-      if (!group.moods?.[selectedMember]?.[todayKey]) setShowCheckin(true);
+      const todayMood = group.moods?.[selectedMember]?.[todayKey];
+      if (!todayMood || todayMood === '') setShowCheckin(true);
     }
   }, [group?.id, selectedMember, activeTab]);
 
