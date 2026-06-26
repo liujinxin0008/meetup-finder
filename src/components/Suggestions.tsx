@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { Group } from '../types';
 import { SCENE_CATEGORIES } from '../types';
 import { matchScene, formatTimeRange } from '../utils/suggestions';
-import { ACTIVITY_CATEGORIES, dpSearch, xhsSearch } from '../utils/activities';
+import { ACTIVITY_CATEGORIES, dpSearch, xhsHomePage, copyKeyword } from '../utils/activities';
 
 interface SuggestionsProps { group: Group; monday: Date; }
 
@@ -372,14 +372,22 @@ export default function Suggestions({ group, monday }: SuggestionsProps) {
                             }}>🔍 点评</a>
                         )}
                         {item.xhsKeyword && (
-                          <a href={xhsSearch(item.xhsKeyword)} target="_blank" rel="noopener noreferrer"
+                          <a href={xhsHomePage()} target="_blank" rel="noopener noreferrer"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              await copyKeyword(item.xhsKeyword!);
+                              window.open(xhsHomePage(), '_blank');
+                            }}
                             style={{
                               flex: 1, textAlign: 'center', padding: '7px',
                               borderRadius: 'var(--radius-xs)',
                               background: '#fdf2f8', border: '1px solid #fbcfe8',
                               color: '#db2777', textDecoration: 'none',
                               fontSize: 11, fontWeight: 600,
-                            }}>📕 小红书</a>
+                              cursor: 'pointer',
+                            }}
+                            title={`已复制"${item.xhsKeyword}"，去小红书粘贴搜索`}
+                          >📕 搜小红书</a>
                         )}
                       </div>
                     </div>

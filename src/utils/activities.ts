@@ -3,13 +3,12 @@ export interface ActivityItem {
   emoji: string;
   title: string;
   desc: string;
-  tags?: string[];             // 热门标签
-  hot?: string;                // 热门推荐文案，如 "新店开业"
-  dpKeyword?: string;          // 大众点评搜索词
-  xhsKeyword?: string;         // 小红书搜索词
+  tags?: string[];
+  hot?: string;
+  dpKeyword?: string;
+  xhsKeyword?: string;
 }
 
-/** 活动大类 */
 export interface ActivityCategory {
   icon: string;
   title: string;
@@ -17,14 +16,31 @@ export interface ActivityCategory {
   items: ActivityItem[];
 }
 
-/** 大众点评搜索链接（移动版，自动定位 + 顶部可唤起 App） */
+/** 大众点评搜索链接 */
 export function dpSearch(keyword: string): string {
-  return `https://m.dianping.com/search/keyword/0_${encodeURIComponent(keyword)}`;
+  return `https://www.dianping.com/search?keyword=${encodeURIComponent(keyword)}`;
 }
 
-/** 小红书搜索链接 */
-export function xhsSearch(keyword: string): string {
-  return `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}`;
+/** 小红书首页链接（搜索页被小红书屏蔽外链，直接进首页手动搜） */
+export function xhsHomePage(): string {
+  return 'https://www.xiaohongshu.com/explore';
+}
+
+/** 复制关键词到剪贴板 */
+export async function copyKeyword(keyword: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(keyword);
+    return true;
+  } catch {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = keyword;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); document.body.removeChild(ta); return true; }
+    catch { document.body.removeChild(ta); return false; }
+  }
 }
 
 export const ACTIVITY_CATEGORIES: ActivityCategory[] = [
