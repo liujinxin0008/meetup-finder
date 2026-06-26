@@ -5,7 +5,11 @@ import { fileURLToPath } from 'url';
 import type { Group } from '../src/types.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
+
+// Netlify Functions 使用 /tmp，本地使用相对路径
+const DATA_DIR = process.env.NETLIFY
+  ? '/tmp/data'
+  : path.join(__dirname, 'data');
 
 interface Schema {
   groups: Group[];
