@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { Group } from '../types';
 import { SCENE_CATEGORIES } from '../types';
 import { matchScene, formatTimeRange } from '../utils/suggestions';
-import { ACTIVITY_CATEGORIES, dpSearch, xhsSearch, dpAppScheme, xhsAppScheme, smartOpen } from '../utils/activities';
+import { ACTIVITY_CATEGORIES, dpSearch, xhsSearch } from '../utils/activities';
 
 interface SuggestionsProps { group: Group; monday: Date; }
 
@@ -362,28 +362,24 @@ export default function Suggestions({ group, monday }: SuggestionsProps) {
                       )}
                       <div style={{ display: 'flex', gap: 6 }}>
                         {item.dpKeyword && (
-                          <button
-                            onClick={() => smartOpen(dpSearch(item.dpKeyword!), dpAppScheme(item.dpKeyword!))}
-                            className="btn-press"
+                          <a href={dpSearch(item.dpKeyword)} target="_blank" rel="noopener noreferrer"
                             style={{
                               flex: 1, textAlign: 'center', padding: '7px',
                               borderRadius: 'var(--radius-xs)',
                               background: '#fff7ed', border: '1px solid #fed7aa',
-                              color: '#ea580c', cursor: 'pointer',
+                              color: '#ea580c', textDecoration: 'none',
                               fontSize: 11, fontWeight: 600,
-                            }}>🔍 点评</button>
+                            }}>🔍 点评</a>
                         )}
                         {item.xhsKeyword && (
-                          <button
-                            onClick={() => smartOpen(xhsSearch(item.xhsKeyword!), xhsAppScheme(item.xhsKeyword!))}
-                            className="btn-press"
+                          <a href={xhsSearch(item.xhsKeyword)} target="_blank" rel="noopener noreferrer"
                             style={{
                               flex: 1, textAlign: 'center', padding: '7px',
                               borderRadius: 'var(--radius-xs)',
                               background: '#fdf2f8', border: '1px solid #fbcfe8',
-                              color: '#db2777', cursor: 'pointer',
+                              color: '#db2777', textDecoration: 'none',
                               fontSize: 11, fontWeight: 600,
-                            }}>📕 小红书</button>
+                            }}>📕 小红书</a>
                         )}
                       </div>
                     </div>
