@@ -172,6 +172,17 @@ function matchHolidayTrip(
 
   for (const date of dates) {
     const dateKey = toDateKey(date);
+
+    // 如果这天没有任何人填过日程，说明大家还没规划，不算"空闲"
+    const anyoneHasSchedule = members.some(m => {
+      const daySchedule = group.schedules[m]?.[dateKey];
+      return daySchedule && Object.keys(daySchedule).length > 0;
+    });
+    if (!anyoneHasSchedule) {
+      dailyDaytime.push({ date, dateKey, daytimeFree: 0, totalFree: 0, available: [], busy: members });
+      continue;
+    }
+
     const commonFree = getCommonFreeSlots(group, members, dateKey);
     const totalFree = commonFree.size;
 
