@@ -149,7 +149,7 @@ export function matchScene(
   return results;
 }
 
-/** 假期旅行：匹配连续多天都空闲 */
+/** 假期旅行：匹配连续多天都空闲（只看白天时段 8:00-20:00） */
 function matchHolidayTrip(
   group: Group,
   monday: Date,
@@ -159,35 +159,53 @@ function matchHolidayTrip(
   const members = group.members;
   const results: SceneSuggestion[] = [];
 
-  // 计算每天的总空闲小时数（所有成员共有）
-  const dailyFreeHours: { date: Date; dateKey: string; hours: number; available: string[]; busy: string[] }[] = [];
+  // 只统计白天的时段（8:00-20:00），出来玩不算晚上睡觉时间
+  const DAYTIME_SLOTS = new Set(
+    TIME_SLOTS.filter(s => {
+      const h = slotToHour(s);
+      return h >= 8 && h < 20;
+    })
+  );
+
+  // 计算每天的共同白天空闲小时数
+  const dailyDaytime: { date: Date; dateKey: string; daytimeFree: number; totalFree: number; available: string[]; busy: string[] }[] = [];
 
   for (const date of dates) {
     const dateKey = toDateKey(date);
     const commonFree = getCommonFreeSlots(group, members, dateKey);
-    const hours = commonFree.size;
+    const totalFree = commonFree.size;
 
-    // 谁有空谁忙（基于大多数时段）
+    // 只算白天共同空闲
+    let daytimeFree = 0;
+    for (const slot of commonFree) {
+      if (DAYTIME_SLOTS.has(slot)) daytimeFree++;
+    }
+
+    // 一个人当天算"有空出游"：白天至少 6 小时空闲
     const available: string[] = [];
     const busy: string[] = [];
     for (const m of members) {
       const mFree = getFreeSlots(group, m, dateKey);
-      if (mFree.size >= 6) available.push(m); // 当天有 6h+ 空闲算"有空"
+      let mDaytime = 0;
+      for (const slot of mFree) {
+        if (DAYTIME_SLOTS.has(slot)) mDaytime++;
+      }
+      if (mDaytime >= 6) available.push(m);
       else busy.push(m);
     }
 
-    dailyFreeHours.push({ date, dateKey, hours, available, busy });
+    dailyDaytime.push({ date, dateKey, daytimeFree, totalFree, available, busy });
   }
 
-  // 找连续 2+ 天大家都比较空的日子
+  // 找连续 2+ 天大家白天都有空的日子
   for (let start = 0; start < dates.length; start++) {
-    if (dailyFreeHours[start].available.length < scene.minPeople) continue;
+    if (dailyDaytime[start].available.length < scene.minPeople) continue;
 
-    let totalHours = dailyFreeHours[start].hours;
+    let totalDaytimeHours = dailyDaytime[start].daytimeFree;
     let end = start;
     for (let j = start + 1; j < dates.length; j++) {
-      if (dailyFreeHours[j].available.length >= scene.minPeople) {
-        totalHours += dailyFreeHours[j].hours;
+      if (dailyDaytime[j].available.length >= scene.minPeople) {
+        totalDaytimeHours += dailyDaytime[j].daytimeFree;
         end = j;
       } else {
         break;
@@ -195,11 +213,11 @@ function matchHolidayTrip(
     }
 
     const days = end - start + 1;
-    if (days >= 2 && totalHours >= scene.minDuration) {
-      // 取交集的人
-      const availableSet = new Set(dailyFreeHours[start].available);
+    // 至少 2 天，且每天平均至少 4 小时白天共同空闲
+    if (days >= 2 && totalDaytimeHours >= scene.minDuration) {
+      const availableSet = new Set(dailyDaytime[start].available);
       for (let k = start + 1; k <= end; k++) {
-        const dayAvail = new Set(dailyFreeHours[k].available);
+        const dayAvail = new Set(dailyDaytime[k].available);
         for (const m of availableSet) {
           if (!dayAvail.has(m)) availableSet.delete(m);
         }
@@ -208,18 +226,18 @@ function matchHolidayTrip(
       results.push({
         categoryId: scene.id,
         categoryTitle: scene.title,
-        date: dailyFreeHours[start].dateKey,
+        date: dailyDaytime[start].dateKey,
         dateLabel: `${toDateLabel(dates[start])} ~ ${toDateLabel(dates[end])}`,
         startSlot: '全天',
         endSlot: `${days}天`,
-        duration: totalHours,
+        duration: totalDaytimeHours,
         availableCount: availableSet.size,
         available: Array.from(availableSet),
         busy: members.filter(m => !availableSet.has(m)),
         activities: scene.activities,
       });
 
-      start = end; // 跳过已匹配的
+      start = end;
     }
   }
 
