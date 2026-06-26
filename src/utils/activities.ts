@@ -17,14 +17,14 @@ export interface ActivityCategory {
   items: ActivityItem[];
 }
 
-/** 大众点评搜索链接（移动版，会自动提示打开 App） */
+/** 大众点评搜索链接 */
 export function dpSearch(keyword: string): string {
-  return `https://m.dianping.com/search/keyword/7/0_${encodeURIComponent(keyword)}`;
+  return `https://www.dianping.com/search/keyword/7/0_${encodeURIComponent(keyword)}`;
 }
 
-/** 小红书搜索链接（移动版，会自动提示打开 App） */
+/** 小红书搜索链接 */
 export function xhsSearch(keyword: string): string {
-  return `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51`;
+  return `https://www.xiaohongshu.com/search_result/${encodeURIComponent(keyword)}`;
 }
 
 export const ACTIVITY_CATEGORIES: ActivityCategory[] = [
