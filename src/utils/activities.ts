@@ -24,7 +24,7 @@ export function dpSearch(keyword: string): string {
 
 /** 小红书搜索链接 */
 export function xhsSearch(keyword: string): string {
-  return `https://www.xiaohongshu.com/search_result/${encodeURIComponent(keyword)}`;
+  return `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}`;
 }
 
 export const ACTIVITY_CATEGORIES: ActivityCategory[] = [
