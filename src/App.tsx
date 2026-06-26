@@ -82,7 +82,7 @@ export default function App() {
     if (!groupId) { setLoading(false); return; }
     setLoading(true);
     getGroup(groupId)
-      .then(g => { setGroup(g); setSelectedMember(g.members[0] || ''); setError(''); })
+      .then(g => { setGroup(g); setError(''); })
       .catch(e => setError(e.message || '加载失败'))
       .finally(() => setLoading(false));
   }, [groupId]);
@@ -102,7 +102,7 @@ export default function App() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
   const handleGroupUpdate = useCallback((g: Group) => setGroup(g), []);
-  const handleGroupReady = useCallback((g: Group) => { setGroup(g); setSelectedMember(g.members[0] || ''); setError(''); }, []);
+  const handleGroupReady = useCallback((g: Group) => { setGroup(g); setError(''); }, []);
 
   const handleCopyLink = useCallback(() => {
     const url = window.location.href;
@@ -236,7 +236,24 @@ export default function App() {
                 moods={group.moods}
                 onCheckin={() => setShowCheckin(true)}
               />
-              <ScheduleGrid group={group} member={selectedMember} monday={monday} onGroupUpdate={handleGroupUpdate} />
+              {selectedMember ? (
+                <ScheduleGrid group={group} member={selectedMember} monday={monday} onGroupUpdate={handleGroupUpdate} />
+              ) : (
+                <div style={{
+                  margin: '48px 24px', textAlign: 'center',
+                  padding: 48, background: 'var(--bg-elevated)',
+                  borderRadius: 'var(--radius-lg)',
+                  boxShadow: 'var(--shadow-sm)',
+                }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>👆</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                    请先选择你是谁
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+                    点击上方你的名字，然后开始填写日程
+                  </div>
+                </div>
+              )}
             </>
           )}
           {activeTab === 'overview' && <OverviewGrid group={group} monday={monday} />}
