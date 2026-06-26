@@ -17,14 +17,48 @@ export interface ActivityCategory {
   items: ActivityItem[];
 }
 
-/** 大众点评搜索链接 */
+/** 大众点评搜索链接（去掉城市限制，全国搜索） */
 export function dpSearch(keyword: string): string {
-  return `https://www.dianping.com/search/keyword/7/0_${encodeURIComponent(keyword)}`;
+  // 去掉城市代码 7（深圳），用空城市表示全国
+  return `https://www.dianping.com/search/keyword/0_${encodeURIComponent(keyword)}`;
+}
+
+/** 大众点评 App 跳转 scheme */
+export function dpAppScheme(keyword: string): string {
+  return `dianping://search?q=${encodeURIComponent(keyword)}`;
 }
 
 /** 小红书搜索链接 */
 export function xhsSearch(keyword: string): string {
-  return `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}`;
+  return `https://www.xiaohongshu.com/explore/${encodeURIComponent(keyword)}`;
+}
+
+/** 小红书 App 跳转 scheme */
+export function xhsAppScheme(keyword: string): string {
+  return `xhsdiscover://search/${encodeURIComponent(keyword)}`;
+}
+
+/** 智能打开：先尝试唤起 App，失败则打开网页 */
+export function smartOpen(webUrl: string, appScheme: string): void {
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (!isMobile) {
+    window.open(webUrl, '_blank');
+    return;
+  }
+
+  // 尝试唤起 App
+  const start = Date.now();
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = appScheme;
+  document.body.appendChild(iframe);
+
+  // 2 秒后如果 App 没响应，打开网页
+  setTimeout(() => {
+    document.body.removeChild(iframe);
+    if (Date.now() - start > 2200) return; // App 打开了
+    window.open(webUrl, '_blank');
+  }, 2000);
 }
 
 export const ACTIVITY_CATEGORIES: ActivityCategory[] = [
