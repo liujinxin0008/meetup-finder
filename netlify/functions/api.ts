@@ -1,11 +1,31 @@
-// 双存储：优先 Netlify Blob，失败自动切回文件
+// Turso 云数据库——永久存储，数据不丢
 import type { Handler, HandlerEvent } from '@netlify/functions';
+import { createClient } from '@libsql/client';
 import { nanoid } from 'nanoid';
-import path from 'path';
-import fs from 'fs';
 
-const DATA_DIR = '/tmp/data';
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const DB_URL = 'libsql://meetup-finder-liujinxin0008.aws-us-west-2.turso.io';
+const DB_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3ODI0NzE4NjAsImlkIjoiMDE5ZjAzOTktZmUwMS03M2ZiLTllYWQtYjQzNmUyY2ZmMzA1IiwicmlkIjoiNTMwMjc3NGQtOWVkMy00ODcyLWIxNzAtNjcwYzQ1NDI3MjdhIn0.v8fiIOw-dxErq9HFT9pbZYayThyi92caycDmwHrcXt2ygfSeUHRCZdjuQWpY432DiT4qPwFjCTI6A4rAVHs_DQ';
+
+let _client: ReturnType<typeof createClient> | null = null;
+let _ready = false;
+
+function getClient() {
+  if (!_client) _client = createClient({ url: DB_URL, authToken: DB_TOKEN });
+  return _client;
+}
+
+async function ensureTable() {
+  if (_ready) return;
+  await getClient().execute(`CREATE TABLE IF NOT EXISTS groups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    members TEXT NOT NULL,
+    schedules TEXT NOT NULL DEFAULT '{}',
+    moods TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  )`);
+  _ready = true;
+}
 
 interface Group {
   id: string;
@@ -16,67 +36,44 @@ interface Group {
   createdAt: string;
 }
 
-// ── 文件存储（兜底） ──
-
-function fileRead(id: string): Group | null {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(DATA_DIR, `${id}.json`), 'utf-8'));
-  } catch { return null; }
-}
-
-function fileWrite(group: Group): void {
-  fs.writeFileSync(path.join(DATA_DIR, `${group.id}.json`), JSON.stringify(group));
-  let idx: any[] = [];
-  try { idx = JSON.parse(fs.readFileSync(path.join(DATA_DIR, '_index.json'), 'utf-8')); } catch {}
-  const ei = idx.findIndex((g: any) => g.id === group.id);
-  const e = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
-  if (ei >= 0) idx[ei] = e; else idx.push(e);
-  fs.writeFileSync(path.join(DATA_DIR, '_index.json'), JSON.stringify(idx));
-}
-
-// ── Blob 存储 ──
-
-let blobStore: any = null;
-let blobTried = false;
-
-async function getBlob() {
-  if (blobTried) return blobStore;
-  blobTried = true;
-  try {
-    const mod = await import('@netlify/blobs');
-    blobStore = mod.getStore('groups');
-  } catch { blobStore = null; }
-  return blobStore;
+function rowToGroup(row: any): Group {
+  return {
+    id: row.id,
+    name: row.name,
+    members: JSON.parse(row.members),
+    schedules: JSON.parse(row.schedules),
+    moods: JSON.parse(row.moods),
+    createdAt: row.created_at,
+  };
 }
 
 async function findGroup(id: string): Promise<Group | null> {
-  const bs = await getBlob();
-  if (bs) {
-    try {
-      const data = await bs.get(id, { type: 'json' });
-      if (data) return data as Group;
-    } catch {}
-  }
-  return fileRead(id);
+  await ensureTable();
+  const rs = await getClient().execute({ sql: 'SELECT * FROM groups WHERE id = ?', args: [id] });
+  if (rs.rows.length === 0) return null;
+  return rowToGroup(rs.rows[0]);
 }
 
 async function saveGroup(group: Group): Promise<void> {
-  const bs = await getBlob();
-  if (bs) {
-    try {
-      await bs.setJSON(group.id, group);
-      const idx: any[] = (await bs.get('_index', { type: 'json' })) || [];
-      const ei = idx.findIndex((g: any) => g.id === group.id);
-      const e = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
-      if (ei >= 0) idx[ei] = e; else idx.push(e);
-      await bs.setJSON('_index', idx);
-      return;
-    } catch {}
-  }
-  fileWrite(group);
+  await ensureTable();
+  await getClient().execute({
+    sql: `INSERT INTO groups (id, name, members, schedules, moods, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            members = excluded.members,
+            schedules = excluded.schedules,
+            moods = excluded.moods,
+            created_at = excluded.created_at`,
+    args: [
+      group.id, group.name,
+      JSON.stringify(group.members),
+      JSON.stringify(group.schedules),
+      JSON.stringify(group.moods),
+      group.createdAt,
+    ],
+  });
 }
-
-// ── 路由 ──
 
 async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number; body: string; headers?: Record<string, string> }> {
   const corsHeaders = {
