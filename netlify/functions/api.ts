@@ -1,14 +1,11 @@
-// Netlify Blob 永久存储
+// 双存储：优先 Netlify Blob，失败自动切回文件
 import type { Handler, HandlerEvent } from '@netlify/functions';
-import { getStore } from '@netlify/blobs';
 import { nanoid } from 'nanoid';
+import path from 'path';
+import fs from 'fs';
 
-// 延迟初始化 store，避免冷启动时环境变量不可用
-let _store: ReturnType<typeof getStore> | null = null;
-function store() {
-  if (!_store) _store = getStore('groups');
-  return _store;
-}
+const DATA_DIR = '/tmp/data';
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 interface Group {
   id: string;
@@ -19,21 +16,67 @@ interface Group {
   createdAt: string;
 }
 
-async function findGroup(id: string): Promise<Group | null> {
+// ── 文件存储（兜底） ──
+
+function fileRead(id: string): Group | null {
   try {
-    return await store().get(id, { type: 'json' }) as Group | null;
+    return JSON.parse(fs.readFileSync(path.join(DATA_DIR, `${id}.json`), 'utf-8'));
   } catch { return null; }
 }
 
-async function saveGroup(group: Group): Promise<void> {
-  await store().setJSON(group.id, group);
-  const index: { id: string; name: string; members: string[]; createdAt: string }[] =
-    (await store().get('_index', { type: 'json' })) || [];
-  const existing = index.findIndex(g => g.id === group.id);
-  const entry = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
-  if (existing >= 0) index[existing] = entry; else index.push(entry);
-  await store().setJSON('_index', index);
+function fileWrite(group: Group): void {
+  fs.writeFileSync(path.join(DATA_DIR, `${group.id}.json`), JSON.stringify(group));
+  let idx: any[] = [];
+  try { idx = JSON.parse(fs.readFileSync(path.join(DATA_DIR, '_index.json'), 'utf-8')); } catch {}
+  const ei = idx.findIndex((g: any) => g.id === group.id);
+  const e = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
+  if (ei >= 0) idx[ei] = e; else idx.push(e);
+  fs.writeFileSync(path.join(DATA_DIR, '_index.json'), JSON.stringify(idx));
 }
+
+// ── Blob 存储 ──
+
+let blobStore: any = null;
+let blobTried = false;
+
+async function getBlob() {
+  if (blobTried) return blobStore;
+  blobTried = true;
+  try {
+    const mod = await import('@netlify/blobs');
+    blobStore = mod.getStore('groups');
+  } catch { blobStore = null; }
+  return blobStore;
+}
+
+async function findGroup(id: string): Promise<Group | null> {
+  const bs = await getBlob();
+  if (bs) {
+    try {
+      const data = await bs.get(id, { type: 'json' });
+      if (data) return data as Group;
+    } catch {}
+  }
+  return fileRead(id);
+}
+
+async function saveGroup(group: Group): Promise<void> {
+  const bs = await getBlob();
+  if (bs) {
+    try {
+      await bs.setJSON(group.id, group);
+      const idx: any[] = (await bs.get('_index', { type: 'json' })) || [];
+      const ei = idx.findIndex((g: any) => g.id === group.id);
+      const e = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
+      if (ei >= 0) idx[ei] = e; else idx.push(e);
+      await bs.setJSON('_index', idx);
+      return;
+    } catch {}
+  }
+  fileWrite(group);
+}
+
+// ── 路由 ──
 
 async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number; body: string; headers?: Record<string, string> }> {
   const corsHeaders = {
