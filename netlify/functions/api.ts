@@ -1,11 +1,9 @@
-// 回退到文件存储版本
+// Netlify Blob 永久存储，数据不会丢失
 import type { Handler, HandlerEvent } from '@netlify/functions';
+import { getDeployStore } from '@netlify/blobs';
 import { nanoid } from 'nanoid';
-import path from 'path';
-import fs from 'fs';
 
-const DATA_DIR = '/tmp/data';
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const store = getDeployStore();
 
 interface Group {
   id: string;
@@ -17,23 +15,20 @@ interface Group {
 }
 
 async function findGroup(id: string): Promise<Group | null> {
-  const file = path.join(DATA_DIR, `${id}.json`);
   try {
-    const raw = fs.readFileSync(file, 'utf-8');
-    return JSON.parse(raw);
+    return await store.get(id, { type: 'json' }) as Group | null;
   } catch { return null; }
 }
 
 async function saveGroup(group: Group): Promise<void> {
-  const file = path.join(DATA_DIR, `${group.id}.json`);
-  fs.writeFileSync(file, JSON.stringify(group));
-  const indexFile = path.join(DATA_DIR, '_index.json');
-  let index: { id: string; name: string; members: string[]; createdAt: string }[] = [];
-  try { index = JSON.parse(fs.readFileSync(indexFile, 'utf-8')); } catch {}
+  await store.setJSON(group.id, group);
+  // 更新索引
+  const index: { id: string; name: string; members: string[]; createdAt: string }[] =
+    (await store.get('_index', { type: 'json' })) || [];
   const existing = index.findIndex(g => g.id === group.id);
   const entry = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
   if (existing >= 0) index[existing] = entry; else index.push(entry);
-  fs.writeFileSync(indexFile, JSON.stringify(index));
+  await store.setJSON('_index', index);
 }
 
 async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number; body: string; headers?: Record<string, string> }> {
