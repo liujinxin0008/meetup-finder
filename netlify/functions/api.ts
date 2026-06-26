@@ -1,9 +1,14 @@
-// Netlify Blob 永久存储，数据不会丢失
+// Netlify Blob 永久存储
 import type { Handler, HandlerEvent } from '@netlify/functions';
-import { getDeployStore } from '@netlify/blobs';
+import { getStore } from '@netlify/blobs';
 import { nanoid } from 'nanoid';
 
-const store = getDeployStore();
+// 延迟初始化 store，避免冷启动时环境变量不可用
+let _store: ReturnType<typeof getStore> | null = null;
+function store() {
+  if (!_store) _store = getStore('groups');
+  return _store;
+}
 
 interface Group {
   id: string;
@@ -16,19 +21,18 @@ interface Group {
 
 async function findGroup(id: string): Promise<Group | null> {
   try {
-    return await store.get(id, { type: 'json' }) as Group | null;
+    return await store().get(id, { type: 'json' }) as Group | null;
   } catch { return null; }
 }
 
 async function saveGroup(group: Group): Promise<void> {
-  await store.setJSON(group.id, group);
-  // 更新索引
+  await store().setJSON(group.id, group);
   const index: { id: string; name: string; members: string[]; createdAt: string }[] =
-    (await store.get('_index', { type: 'json' })) || [];
+    (await store().get('_index', { type: 'json' })) || [];
   const existing = index.findIndex(g => g.id === group.id);
   const entry = { id: group.id, name: group.name, members: group.members, createdAt: group.createdAt };
   if (existing >= 0) index[existing] = entry; else index.push(entry);
-  await store.setJSON('_index', index);
+  await store().setJSON('_index', index);
 }
 
 async function handleRequest(event: HandlerEvent): Promise<{ statusCode: number; body: string; headers?: Record<string, string> }> {
