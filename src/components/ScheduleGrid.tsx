@@ -20,10 +20,29 @@ function parseCellKey(key: string) {
 const CELL_SIZE = 34; // 气泡格子的高度
 const CELL_GAP = 2;
 
+// 自定义标签配色（基于字符串哈希选择）
+const CUSTOM_COLORS = [
+  { bg: '#fce7f3', border: '#f9a8d4' },
+  { bg: '#e0e7ff', border: '#a5b4fc' },
+  { bg: '#d1fae5', border: '#6ee7b7' },
+  { bg: '#fef3c7', border: '#fcd34d' },
+  { bg: '#ede9fe', border: '#c4b5fd' },
+  { bg: '#cffafe', border: '#67e8f9' },
+  { bg: '#ffe4e6', border: '#fda4af' },
+  { bg: '#f3e8ff', border: '#d8b4fe' },
+];
+
+function getCustomColor(label: string) {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = ((hash << 5) - hash + label.charCodeAt(i)) | 0;
+  return CUSTOM_COLORS[Math.abs(hash) % CUSTOM_COLORS.length];
+}
+
 export default function ScheduleGrid({ group, member, monday, onGroupUpdate }: ScheduleGridProps) {
   const [saving, setSaving] = useState(false);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const isDragging = useRef(false);
+  const [customLabel, setCustomLabel] = useState('');
   const [multiPanel, setMultiPanel] = useState(false);
   const [singlePanel, setSinglePanel] = useState<{
     dateKey: DateKey; slot: string; dateLabel: string;
@@ -212,11 +231,14 @@ export default function ScheduleGrid({ group, member, monday, onGroupUpdate }: S
                         zIndex: 2, position: 'relative' as const,
                         boxShadow: '0 2px 8px rgba(99,102,241,0.2)',
                       } : {}),
-                      // 已标记活动
-                      ...(!sel && act ? {
-                        background: actDef?.color || '#e2e8f0',
-                        border: `1px solid ${actDef?.color || '#e2e8f0'}80`,
-                      } : {}),
+                      // 已标记活动（预设或自定义）
+                      ...(!sel && act ? (actDef ? {
+                        background: actDef.color,
+                        border: `1px solid ${actDef.color}80`,
+                      } : (() => { const cc = getCustomColor(act); return {
+                        background: cc.bg,
+                        border: `1px solid ${cc.border}`,
+                      }; })()) : {}),
                       // 今天 + 空闲
                       ...(!sel && !act && isToday ? {
                         background: 'var(--primary-ghost)',
@@ -230,11 +252,15 @@ export default function ScheduleGrid({ group, member, monday, onGroupUpdate }: S
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 14, transition: 'all 0.12s var(--ease-out-expo)',
                     }}>
-                    {/* 选中时显示 ✓，已标记显示 emoji */}
+                    {/* 选中时显示 ✓，已标记显示 emoji 或自定义文字 */}
                     {sel ? (
                       <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 800 }}>✓</span>
-                    ) : actDef?.emoji ? (
-                      <span>{actDef.emoji}</span>
+                    ) : act ? (
+                      actDef?.emoji ? (
+                        <span style={{ fontSize: 14 }}>{actDef.emoji}</span>
+                      ) : (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>{act.slice(0, 2)}</span>
+                      )
                     ) : null}
                   </div>
                 );
@@ -307,6 +333,49 @@ export default function ScheduleGrid({ group, member, monday, onGroupUpdate }: S
               </button>
             ))}
           </div>
+
+          {/* 自定义标签 */}
+          <div style={{
+            display: 'flex', gap: 8, marginBottom: 14,
+            padding: 10, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)',
+          }}>
+            <input
+              value={customLabel}
+              onChange={e => setCustomLabel(e.target.value)}
+              placeholder="✏️ 自定义，比如：睡觉、演唱会..."
+              style={{
+                flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                border: '1.5px solid var(--border-default)', fontSize: 14,
+                outline: 'none', background: 'var(--bg-elevated)',
+                fontFamily: 'var(--font-body)',
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && customLabel.trim()) {
+                  applyToSelection(customLabel.trim());
+                  setCustomLabel('');
+                }
+              }}
+            />
+            <button
+              onClick={() => {
+                if (!customLabel.trim()) return;
+                applyToSelection(customLabel.trim());
+                setCustomLabel('');
+              }}
+              disabled={!customLabel.trim()}
+              className="btn-press"
+              style={{
+                padding: '10px 16px', borderRadius: 'var(--radius-sm)',
+                border: 'none', cursor: customLabel.trim() ? 'pointer' : 'not-allowed',
+                background: customLabel.trim()
+                  ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+                  : 'var(--border-default)',
+                color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
+                opacity: customLabel.trim() ? 1 : 0.5,
+              }}
+            >添加</button>
+          </div>
+
           <button onClick={() => applyToSelection('')}
             className="btn-press"
             style={{
@@ -359,8 +428,10 @@ export default function ScheduleGrid({ group, member, monday, onGroupUpdate }: S
               <span style={{
                 fontSize: 14, fontWeight: 600, padding: '4px 12px',
                 borderRadius: 'var(--radius-xs)',
-                background: getActivityColor(panelActivity),
-              }}>{getActivityEmoji(panelActivity)} {panelActivity}</span>
+                background: PRESET_ACTIVITIES.some(a => a.key === panelActivity)
+                  ? getActivityColor(panelActivity)
+                  : (() => { const cc = getCustomColor(panelActivity); return cc.bg; })(),
+              }}>{PRESET_ACTIVITIES.some(a => a.key === panelActivity) ? getActivityEmoji(panelActivity) : '📝'} {panelActivity}</span>
             </div>
           )}
 
@@ -387,6 +458,48 @@ export default function ScheduleGrid({ group, member, monday, onGroupUpdate }: S
                 </button>
               );
             })}
+          </div>
+
+          {/* 自定义标签 */}
+          <div style={{
+            display: 'flex', gap: 8, marginBottom: 14,
+            padding: 10, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)',
+          }}>
+            <input
+              value={customLabel}
+              onChange={e => setCustomLabel(e.target.value)}
+              placeholder="✏️ 自定义，比如：睡觉、演唱会..."
+              style={{
+                flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                border: '1.5px solid var(--border-default)', fontSize: 14,
+                outline: 'none', background: 'var(--bg-elevated)',
+                fontFamily: 'var(--font-body)',
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && customLabel.trim()) {
+                  batchSetActivity([{ dateKey: singlePanel.dateKey, slot: singlePanel.slot }], customLabel.trim());
+                  setCustomLabel(''); closeSinglePanel();
+                }
+              }}
+            />
+            <button
+              onClick={() => {
+                if (!customLabel.trim()) return;
+                batchSetActivity([{ dateKey: singlePanel.dateKey, slot: singlePanel.slot }], customLabel.trim());
+                setCustomLabel(''); closeSinglePanel();
+              }}
+              disabled={!customLabel.trim()}
+              className="btn-press"
+              style={{
+                padding: '10px 16px', borderRadius: 'var(--radius-sm)',
+                border: 'none', cursor: customLabel.trim() ? 'pointer' : 'not-allowed',
+                background: customLabel.trim()
+                  ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+                  : 'var(--border-default)',
+                color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
+                opacity: customLabel.trim() ? 1 : 0.5,
+              }}
+            >添加</button>
           </div>
 
           <button onClick={() => { batchSetActivity([{ dateKey: singlePanel.dateKey, slot: singlePanel.slot }], ''); closeSinglePanel(); }}
