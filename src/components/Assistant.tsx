@@ -8,6 +8,7 @@ interface Props {
   group: Group;
   member: string;
   onGroupUpdate: (group: Group) => void;
+  onSuggestions?: (items: { id: string; type: 'invite' | 'callout' | 'nudge'; text: string; peer?: string; icon?: string }[]) => void;
 }
 
 interface ChatMsg {
@@ -18,7 +19,7 @@ interface ChatMsg {
   callouts?: string[];
 }
 
-export default function Assistant({ group, member, onGroupUpdate }: Props) {
+export default function Assistant({ group, member, onGroupUpdate, onSuggestions }: Props) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
@@ -49,10 +50,24 @@ export default function Assistant({ group, member, onGroupUpdate }: Props) {
         role: 'bot',
         text: result.reply,
         plans: result.plans?.length ? result.plans : undefined,
-        suggestions: result.suggestions?.length ? result.suggestions : undefined,
-        callouts: result.callouts?.length ? result.callouts : undefined,
       };
       setMessages(prev => [...prev, botMsg]);
+
+      // 建议和趣闻通过浮动弹窗展示
+      if (onSuggestions) {
+        const popups: { id: string; type: 'invite' | 'callout' | 'nudge'; text: string; peer?: string; icon?: string }[] = [];
+        if (result.suggestions) {
+          result.suggestions.forEach((s, i) => {
+            popups.push({ id: `sug-${Date.now()}-${i}`, type: 'invite', text: s.text, peer: s.peer, icon: '📩' });
+          });
+        }
+        if (result.callouts) {
+          result.callouts.forEach((c, i) => {
+            popups.push({ id: `cal-${Date.now()}-${i}`, type: 'callout', text: c });
+          });
+        }
+        if (popups.length > 0) onSuggestions(popups);
+      }
     } catch (err: any) {
       setMessages(prev => [...prev, { role: 'bot', text: `😅 ${err.message || '出错了，稍后重试'}` }]);
     }

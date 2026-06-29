@@ -11,6 +11,7 @@ import SetupPage from './components/SetupPage';
 import DailyCheckin from './components/DailyCheckin';
 import Assistant from './components/Assistant';
 import ProposalCard from './components/ProposalCard';
+import SuggestionPopup, { type Suggestion } from './components/SuggestionPopup';
 
 function getGroupIdFromURL(): string | null {
   return new URLSearchParams(window.location.search).get('id');
@@ -78,6 +79,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [showCheckin, setShowCheckin] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [aiSuggestions, setAiSuggestions] = useState<Suggestion[]>([]);
 
   const groupId = getGroupIdFromURL();
 
@@ -336,8 +338,13 @@ export default function App() {
 
       {/* ====== 浮动 AI 助手 ====== */}
       {selectedMember && (
-        <Assistant group={group} member={selectedMember} onGroupUpdate={handleGroupUpdate} />
+        <Assistant group={group} member={selectedMember} onGroupUpdate={handleGroupUpdate}
+          onSuggestions={(items) => setAiSuggestions(prev => [...prev, ...items])}
+        />
       )}
+
+      {/* ====== AI 建议弹窗 ====== */}
+      <SuggestionPopup suggestions={aiSuggestions} onDismiss={(id) => setAiSuggestions(prev => prev.filter(s => s.id !== id))} />
 
       {/* ====== Toast ====== */}
       {toast && (
