@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Group, TabId } from './types';
-import { getGroup } from './api';
+import type { Group, TabId, Proposal } from './types';
+import { getGroup, getProposals } from './api';
 import { getMonday } from './utils/time';
 import WeekPicker from './components/WeekPicker';
 import MemberPicker from './components/MemberPicker';
@@ -9,6 +9,8 @@ import OverviewGrid from './components/OverviewGrid';
 import Suggestions from './components/Suggestions';
 import SetupPage from './components/SetupPage';
 import DailyCheckin from './components/DailyCheckin';
+import Assistant from './components/Assistant';
+import ProposalCard from './components/ProposalCard';
 
 function getGroupIdFromURL(): string | null {
   return new URLSearchParams(window.location.search).get('id');
@@ -75,6 +77,7 @@ export default function App() {
   const [monday, setMonday] = useState(() => getMonday(new Date()));
   const [toast, setToast] = useState('');
   const [showCheckin, setShowCheckin] = useState(false);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
 
   const groupId = getGroupIdFromURL();
 
@@ -89,9 +92,17 @@ export default function App() {
 
   useEffect(() => {
     if (!groupId || !group) return;
-    const t = setInterval(() => { getGroup(groupId).then(setGroup).catch(() => {}); }, 30000);
+    const t = setInterval(() => {
+      getGroup(groupId).then(setGroup).catch(() => {});
+      getProposals(groupId).then(setProposals).catch(() => {});
+    }, 30000);
     return () => clearInterval(t);
   }, [groupId, group?.id]);
+
+  // 首次加载邀约
+  useEffect(() => {
+    if (groupId) getProposals(groupId).then(setProposals).catch(() => {});
+  }, [groupId]);
 
   useEffect(() => {
     if (group && selectedMember && activeTab === 'my') {
@@ -237,6 +248,17 @@ export default function App() {
                 moods={group.moods}
                 onCheckin={() => setShowCheckin(true)}
               />
+              {selectedMember && (
+                <>
+                  <ProposalCard
+                    groupId={group.id}
+                    proposals={proposals}
+                    currentMember={selectedMember}
+                    onUpdate={setProposals}
+                  />
+                  <Assistant group={group} member={selectedMember} onGroupUpdate={handleGroupUpdate} />
+                </>
+              )}
               {selectedMember ? (
                 <ScheduleGrid group={group} member={selectedMember} monday={monday} onGroupUpdate={handleGroupUpdate} />
               ) : (

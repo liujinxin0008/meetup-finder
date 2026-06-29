@@ -130,6 +130,23 @@ export type MemberKey = string;
 export type DateKey = string;
 export type TabId = 'my' | 'overview' | 'suggestions';
 
+// ==================== 邀约系统 ====================
+
+export interface Proposal {
+  id: string;
+  groupId: string;
+  from: string;
+  to: string[];
+  dateKey: string;
+  dateLabel: string;
+  startSlot: string;
+  endSlot: string;
+  activity: string;
+  note: string;
+  responses: Record<string, 'yes' | 'no' | 'pending'>;
+  createdAt: string;
+}
+
 // ==================== 场景分类 ====================
 
 export interface ActivityIdea {

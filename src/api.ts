@@ -1,4 +1,4 @@
-import type { Group, DaySchedule } from './types';
+import type { Group, DaySchedule, Proposal } from './types';
 
 const BASE = '/api';
 
@@ -46,5 +46,42 @@ export function updateSchedule(
   return request(`/groups/${id}/schedule`, {
     method: 'PUT',
     body: JSON.stringify({ member, dateKey, busySlots }),
+  });
+}
+
+// ── 邀约 API ──
+
+export function getProposals(groupId: string): Promise<Proposal[]> {
+  return request(`/groups/${groupId}/proposals`);
+}
+
+export function createProposal(
+  groupId: string,
+  data: {
+    from: string;
+    to: string[];
+    dateKey: string;
+    dateLabel: string;
+    startSlot: string;
+    endSlot: string;
+    activity: string;
+    note?: string;
+  }
+): Promise<{ id: string; responses: Record<string, string> }> {
+  return request(`/groups/${groupId}/proposals`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function respondProposal(
+  groupId: string,
+  proposalId: string,
+  member: string,
+  response: 'yes' | 'no'
+): Promise<{ responses: Record<string, string> }> {
+  return request(`/groups/${groupId}/proposals/${proposalId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ member, response }),
   });
 }
