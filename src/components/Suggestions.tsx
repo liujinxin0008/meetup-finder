@@ -1,10 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Group } from '../types';
+import type { Group, Proposal } from '../types';
 import { SCENE_CATEGORIES } from '../types';
 import { matchScene, formatTimeRange } from '../utils/suggestions';
 import { ACTIVITY_CATEGORIES, dpSearch, xhsHomePage, copyKeyword } from '../utils/activities';
+import { respondProposal, createProposal } from '../api';
 
-interface SuggestionsProps { group: Group; monday: Date; }
+interface SuggestionsProps {
+  group: Group;
+  monday: Date;
+  member: string;
+  proposals: Proposal[];
+  onProposalsUpdate: (p: Proposal[]) => void;
+}
 
 // 大类的配色方案
 const CAT_COLORS = [
@@ -18,7 +25,7 @@ const CAT_COLORS = [
   { bg: '#fefce8', accent: '#ca8a04', dot: '#fde047', icon: '✈️' },
 ];
 
-export default function Suggestions({ group, monday }: SuggestionsProps) {
+export default function Suggestions({ group, monday, member, proposals, onProposalsUpdate }: SuggestionsProps) {
   const [activeScene, setActiveScene] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const expandRef = useRef<HTMLDivElement>(null);
@@ -39,6 +46,18 @@ export default function Suggestions({ group, monday }: SuggestionsProps) {
 
   return (
     <div style={{ padding: '12px 14px', paddingBottom: 80 }}>
+      {/* ====== 活跃邀约 ====== */}
+      {proposals.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div style={{ width: 4, height: 20, borderRadius: '4px', background: 'linear-gradient(180deg, #f59e0b, #fbbf24)' }} />
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>📩 活跃邀约</span>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{proposals.length}个</span>
+          </div>
+          {proposals.map(p => <ProposalItem key={p.id} p={p} member={member} onUpdate={onProposalsUpdate} proposals={proposals} groupId={group.id} />)}
+        </div>
+      )}
+
       {/* ====== 精选推荐轮播卡片 ====== */}
       {allSuggestions.length > 0 && (
         <div style={{ marginBottom: 20 }}>
@@ -401,3 +420,73 @@ export default function Suggestions({ group, monday }: SuggestionsProps) {
     </div>
   );
 }
+
+// ── 邀约卡片（内嵌版） ──
+
+function ProposalItem({ p, member, onUpdate, proposals, groupId }: {
+  p: Proposal; member: string; onUpdate: (p: Proposal[]) => void; proposals: Proposal[]; groupId: string;
+}) {
+  const [responding, setResponding] = useState(false);
+  const isPending = p.responses[member] === 'pending' && p.from !== member;
+  const yesCount = Object.values(p.responses).filter(r => r === 'yes').length;
+  const noCount = Object.values(p.responses).filter(r => r === 'no').length;
+
+  const handleRespond = async (resp: 'yes' | 'no') => {
+    setResponding(true);
+    try {
+      await respondProposal(groupId, p.id, member, resp);
+      onUpdate(proposals.map(pp => pp.id === p.id ? { ...pp, responses: { ...pp.responses, [member]: resp } } : pp));
+    } catch {}
+    setResponding(false);
+  };
+
+  return (
+    <div style={{
+      marginBottom: 8, borderRadius: 'var(--radius-md)',
+      border: isPending ? '2px solid #f59e0b' : '1px solid var(--border-default)',
+      overflow: 'hidden',
+      boxShadow: isPending ? '0 2px 12px rgba(245,158,11,0.15)' : 'var(--shadow-xs)',
+    }}>
+      <div style={{
+        padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8,
+        background: isPending ? 'linear-gradient(135deg, #fffbeb, #fef3c7)' : 'var(--bg-subtle)',
+      }}>
+        <span style={{ fontSize: 22 }}>{EMOJI_MAP[p.activity] || '📌'}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            {isPending && '🔔 '}{p.from} 约 {p.activity}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+            {p.dateLabel} {p.startSlot}-{p.endSlot}
+            {p.note && ` · "${p.note}"`}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {Object.entries(p.responses).map(([m, r]) => (
+            <span key={m} style={{
+              fontSize: 11, padding: '2px 6px', borderRadius: 'var(--radius-sm)',
+              background: r === 'yes' ? '#d1fae5' : r === 'no' ? '#fee2e2' : '#fef3c7',
+              color: r === 'yes' ? '#065f46' : r === 'no' ? '#991b1b' : '#92400e',
+            }}>{m} {r === 'yes' ? '✅' : r === 'no' ? '❌' : '❓'}</span>
+          ))}
+        </div>
+      </div>
+      {isPending && (
+        <div style={{ display: 'flex', gap: 8, padding: '10px 14px' }}>
+          <button onClick={() => handleRespond('yes')} disabled={responding} className="btn-press"
+            style={{ flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: '#10b981', color: '#fff' }}
+          >✅ 去！</button>
+          <button onClick={() => handleRespond('no')} disabled={responding} className="btn-press"
+            style={{ flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-default)', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: 'var(--bg-elevated)' }}
+          >❌ 没空</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const EMOJI_MAP: Record<string, string> = {
+  '吃饭': '🍲', '火锅': '🍲', '日料': '🍣', '烧烤': '🍖', '喝酒': '🍺',
+  '咖啡': '☕', '爬山': '⛰️', '看电影': '🎬', '桌游': '🎱', 'KTV': '🎤',
+  '约会': '💕', '健身': '🏃', '逛街': '🛍️', '旅游': '✈️',
+};

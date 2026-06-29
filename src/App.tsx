@@ -250,14 +250,6 @@ export default function App() {
                 moods={group.moods}
                 onCheckin={() => setShowCheckin(true)}
               />
-              {selectedMember && (
-                <ProposalCard
-                  groupId={group.id}
-                  proposals={proposals}
-                  currentMember={selectedMember}
-                  onUpdate={setProposals}
-                />
-              )}
               {selectedMember ? (
                 <ScheduleGrid group={group} member={selectedMember} monday={monday} onGroupUpdate={handleGroupUpdate} />
               ) : (
@@ -279,7 +271,16 @@ export default function App() {
             </>
           )}
           {activeTab === 'overview' && <OverviewGrid group={group} monday={monday} />}
-          {activeTab === 'suggestions' && <Suggestions group={group} monday={monday} />}
+          {activeTab === 'suggestions' && (
+            <Suggestions
+              group={group}
+              monday={monday}
+              member={selectedMember}
+              proposals={proposals}
+              onProposalsUpdate={setProposals}
+              onOpenAssistant={() => {}} // will be handled by Assistant ref
+            />
+          )}
         </div>
       </main>
 
