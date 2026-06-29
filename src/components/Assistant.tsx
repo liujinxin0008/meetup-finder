@@ -51,27 +51,29 @@ export default function Assistant({ group, member, onGroupUpdate }: AssistantPro
     setMessages(prev => [...prev, userMsg]);
     setInput('');
 
-    // 解析
     const { plans, reminders, unrecognized } = parseSchedule(text, monday);
-
-    // 扫描空闲
     const { suggestions, callouts } = scanFreeSlots(group, member, monday);
 
-    // 构建回复
     let reply = '';
     if (plans.length > 0) {
-      const dayList = plans.map(p => `📅 ${p.dateLabel}`).join('\n');
+      const lines = plans.map(p => {
+        const acts = Object.values(p.slots).filter(Boolean);
+        const unique = [...new Set(acts)];
+        const firstSlot = Object.keys(p.slots)[0];
+        const lastSlot = Object.keys(p.slots)[Object.keys(p.slots).length - 1];
+        return `📅 ${p.dateLabel} ${firstSlot}-${lastSlot} → ${unique.join('、')}`;
+      });
       const totalSlots = plans.reduce((sum, p) => sum + Object.keys(p.slots).length, 0);
-      reply = `解析到 ${plans.length} 天 ${totalSlots} 个时段：\n${dayList}\n\n确认无误？`;
+      reply = `解析到 ${plans.length} 天共 ${totalSlots} 个时段：\n${lines.join('\n')}\n\n点下方确认填入日历 ↓`;
     }
     if (reminders.length > 0) {
-      reply += '\n' + reminders.join('\n');
+      reply += (reply ? '\n' : '') + reminders.join('\n');
     }
     if (unrecognized.length > 0) {
-      reply += `\n\n🤔 没太理解"${unrecognized[0]}"，可以换个说法试试？`;
+      reply += (reply ? '\n\n' : '') + `🤔 没太理解"${unrecognized.join('、')}"，试试"周一到周五上班，周六爬山"？`;
     }
     if (!plans.length && !reminders.length && !unrecognized.length) {
-      reply = '没有解析到日程信息，试试说"周一到周五白天上班，周六爬山"？';
+      reply = '没有解析到日程。试试说：\n• 周一到周五9点上班18点下班\n• 周六全天休息\n• 周日晚上约了火锅';
     }
 
     const botMsg: ChatMessage = { role: 'bot', text: reply, plans: plans.length > 0 ? plans : undefined, suggestions, callouts };
