@@ -249,15 +249,12 @@ export default function App() {
                 onCheckin={() => setShowCheckin(true)}
               />
               {selectedMember && (
-                <>
-                  <ProposalCard
-                    groupId={group.id}
-                    proposals={proposals}
-                    currentMember={selectedMember}
-                    onUpdate={setProposals}
-                  />
-                  <Assistant group={group} member={selectedMember} onGroupUpdate={handleGroupUpdate} />
-                </>
+                <ProposalCard
+                  groupId={group.id}
+                  proposals={proposals}
+                  currentMember={selectedMember}
+                  onUpdate={setProposals}
+                />
               )}
               {selectedMember ? (
                 <ScheduleGrid group={group} member={selectedMember} monday={monday} onGroupUpdate={handleGroupUpdate} />
@@ -335,6 +332,11 @@ export default function App() {
       {/* ====== 签到弹窗 ====== */}
       {showCheckin && (
         <DailyCheckin group={group} member={selectedMember} onClose={() => setShowCheckin(false)} onGroupUpdate={handleGroupUpdate} />
+      )}
+
+      {/* ====== 浮动 AI 助手 ====== */}
+      {selectedMember && (
+        <Assistant group={group} member={selectedMember} onGroupUpdate={handleGroupUpdate} />
       )}
 
       {/* ====== Toast ====== */}

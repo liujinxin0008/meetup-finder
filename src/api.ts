@@ -74,6 +74,29 @@ export function createProposal(
   });
 }
 
+// ── AI 助手 ──
+
+export async function askAssistant(
+  groupId: string,
+  message: string,
+): Promise<{
+  reply: string;
+  plans: { dateKey: string; dateLabel: string; slots: Record<string, string> }[];
+  suggestions: { text: string; action: string; dateKey?: string; slot?: string; peer?: string }[];
+  callouts: string[];
+}> {
+  const res = await fetch(`${BASE}/assistant`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ groupId, message }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as any).error || 'AI 调用失败');
+  }
+  return res.json();
+}
+
 export function respondProposal(
   groupId: string,
   proposalId: string,

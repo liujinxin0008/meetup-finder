@@ -1,93 +1,69 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Group, DaySchedule } from '../types';
-import type { ParsedPlan } from '../utils/parser';
-import { parseSchedule, scanFreeSlots, generateGreeting } from '../utils/parser';
-import { getMonday, getWeekDates, toDateKey } from '../utils/time';
+import type { Group } from '../types';
+import { askAssistant } from '../api';
 import { updateSchedule } from '../api';
+import { getMonday, getWeekDates } from '../utils/time';
 
-interface AssistantProps {
+interface Props {
   group: Group;
   member: string;
   onGroupUpdate: (group: Group) => void;
 }
 
-interface ChatMessage {
+interface ChatMsg {
   role: 'bot' | 'user';
   text: string;
-  plans?: ParsedPlan[];
-  suggestions?: { dateKey: string; dateLabel: string; slot: string; timeLabel: string; freePeers: string[]; busyPeers: string[]; missingPeers: string[] }[];
+  plans?: { dateKey: string; dateLabel: string; slots: Record<string, string> }[];
+  suggestions?: { text: string; action: string; dateKey?: string; slot?: string; peer?: string }[];
   callouts?: string[];
 }
 
-export default function Assistant({ group, member, onGroupUpdate }: AssistantProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export default function Assistant({ group, member, onGroupUpdate }: Props) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
-  const [collapsed, setCollapsed] = useState(true);
-  const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  const monday = getMonday(new Date());
-
-  // 初始化打招呼
-  useEffect(() => {
-    if (member && messages.length === 0) {
-      const greeting = generateGreeting(group, member);
-      setMessages([{ role: 'bot', text: greeting }]);
-      setTimeout(() => setCollapsed(false), 500);
-    }
-  }, [member]);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, loading]);
+
+  useEffect(() => {
+    if (open && messages.length === 0 && member) {
+      setMessages([{ role: 'bot', text: `👋 你好 ${member}！我是聚会助手。告诉我你这周有什么安排，我会帮你填好日历，顺便帮你看看其他人的时间。` }]);
     }
-  }, [messages]);
+  }, [open, member]);
 
   const handleSend = async (text: string) => {
-    if (!text.trim()) return;
-
-    const userMsg: ChatMessage = { role: 'user', text };
-    setMessages(prev => [...prev, userMsg]);
+    if (!text.trim() || loading) return;
+    setMessages(prev => [...prev, { role: 'user', text }]);
     setInput('');
+    setLoading(true);
 
-    const { plans, reminders, unrecognized } = parseSchedule(text, monday);
-    const { suggestions, callouts } = scanFreeSlots(group, member, monday);
-
-    let reply = '';
-    if (plans.length > 0) {
-      const lines = plans.map(p => {
-        const acts = Object.values(p.slots).filter(Boolean);
-        const unique = [...new Set(acts)];
-        const firstSlot = Object.keys(p.slots)[0];
-        const lastSlot = Object.keys(p.slots)[Object.keys(p.slots).length - 1];
-        return `📅 ${p.dateLabel} ${firstSlot}-${lastSlot} → ${unique.join('、')}`;
-      });
-      const totalSlots = plans.reduce((sum, p) => sum + Object.keys(p.slots).length, 0);
-      reply = `解析到 ${plans.length} 天共 ${totalSlots} 个时段：\n${lines.join('\n')}\n\n点下方确认填入日历 ↓`;
+    try {
+      const result = await askAssistant(group.id, text);
+      const botMsg: ChatMsg = {
+        role: 'bot',
+        text: result.reply,
+        plans: result.plans?.length ? result.plans : undefined,
+        suggestions: result.suggestions?.length ? result.suggestions : undefined,
+        callouts: result.callouts?.length ? result.callouts : undefined,
+      };
+      setMessages(prev => [...prev, botMsg]);
+    } catch (err: any) {
+      setMessages(prev => [...prev, { role: 'bot', text: `😅 ${err.message || '出错了，稍后重试'}` }]);
     }
-    if (reminders.length > 0) {
-      reply += (reply ? '\n' : '') + reminders.join('\n');
-    }
-    if (unrecognized.length > 0) {
-      reply += (reply ? '\n\n' : '') + `🤔 没太理解"${unrecognized.join('、')}"，试试"周一到周五上班，周六爬山"？`;
-    }
-    if (!plans.length && !reminders.length && !unrecognized.length) {
-      reply = '没有解析到日程。试试说：\n• 周一到周五9点上班18点下班\n• 周六全天休息\n• 周日晚上约了火锅';
-    }
-
-    const botMsg: ChatMessage = { role: 'bot', text: reply, plans: plans.length > 0 ? plans : undefined, suggestions, callouts };
-    setMessages(prev => [...prev, botMsg]);
+    setLoading(false);
   };
 
-  const handleConfirmPlans = async () => {
-    const lastBot = [...messages].reverse().find(m => m.role === 'bot' && m.plans);
-    if (!lastBot?.plans) return;
-
+  const handleConfirm = async (plans: { dateKey: string; dateLabel: string; slots: Record<string, string> }[]) => {
     const newSchedules = { ...group.schedules };
     if (!newSchedules[member]) newSchedules[member] = {};
 
-    for (const plan of lastBot.plans) {
+    for (const plan of plans) {
       newSchedules[member][plan.dateKey] = {
         ...(newSchedules[member][plan.dateKey] || {}),
         ...plan.slots,
@@ -96,231 +72,205 @@ export default function Assistant({ group, member, onGroupUpdate }: AssistantPro
 
     onGroupUpdate({ ...group, schedules: newSchedules });
 
-    // 保存到服务器
     try {
-      for (const plan of lastBot.plans) {
+      for (const plan of plans) {
         const daySchedule = newSchedules[member][plan.dateKey];
-        const result = await updateSchedule(group.id, member, plan.dateKey, daySchedule);
-        onGroupUpdate(result);
+        await updateSchedule(group.id, member, plan.dateKey, daySchedule);
       }
     } catch {}
 
-    setMessages(prev => [...prev, { role: 'bot', text: '✅ 已保存！我帮你看了其他人的状态：' }]);
-
-    // 扫描建议
-    const { suggestions, callouts } = scanFreeSlots(group, member, monday);
-    const sugMsg: ChatMessage = { role: 'bot', text: '', suggestions, callouts };
-    if (suggestions.length > 0 || callouts.length > 0) {
-      setMessages(prev => [...prev, sugMsg]);
-    }
+    setMessages(prev => [...prev, { role: 'bot', text: '✅ 已保存到日历！' }]);
   };
 
-  // 语音输入
   const startListening = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setMessages(prev => [...prev, { role: 'bot', text: '⚠️ 你的浏览器不支持语音输入。请在 Chrome 或 Safari 中打开，或手动输入。' }]);
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setMessages(prev => [...prev, { role: 'bot', text: '⚠️ 浏览器不支持语音，请手动输入' }]);
       return;
     }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'zh-CN';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
+    const rec = new SR();
+    rec.lang = 'zh-CN';
+    rec.interimResults = false;
     setListening(true);
-    recognition.start();
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(transcript);
-      setListening(false);
-    };
-
-    recognition.onerror = () => {
-      setListening(false);
-      setMessages(prev => [...prev, { role: 'bot', text: '🎤 没听清楚，再试一次？' }]);
-    };
-
-    recognition.onend = () => setListening(false);
+    rec.start();
+    rec.onresult = (e: any) => { setInput(e.results[0][0].transcript); setListening(false); };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
   };
 
   return (
-    <div style={{ padding: '8px 12px' }}>
-      {/* 折叠按钮 */}
+    <>
+      {/* 浮动按钮 */}
       <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="btn-press"
+        onClick={() => setOpen(!open)}
         style={{
-          width: '100%', padding: '10px 16px',
-          border: '1px solid var(--border-default)',
-          borderRadius: 'var(--radius-lg)',
-          background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)',
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-          fontSize: 14, fontWeight: 600, color: '#4f46e5',
-          boxShadow: 'var(--shadow-xs)',
+          position: 'fixed', bottom: 90, right: 16, zIndex: 500,
+          width: 52, height: 52, borderRadius: '50%',
+          border: 'none', cursor: 'pointer',
+          background: open
+            ? 'var(--bg-elevated)'
+            : 'linear-gradient(135deg, #6366f1, #a855f7)',
+          color: open ? '#6366f1' : '#fff',
+          fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 4px 20px rgba(99,102,241,0.35)',
+          transition: 'all 0.2s var(--ease-out-expo)',
         }}
       >
-        <span>🤖</span> 智能助手
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-tertiary)' }}>
-          {collapsed ? '展开 ▲' : '收起 ▼'}
-        </span>
+        {open ? '✕' : '💬'}
+        {!open && (
+          <div style={{
+            position: 'absolute', top: -6, right: -6,
+            width: 18, height: 18, borderRadius: '50%',
+            background: '#ef4444', border: '2px solid white',
+            animation: 'pulse 2s infinite',
+          }} />
+        )}
       </button>
 
-      {!collapsed && (
+      {/* 浮窗 */}
+      {open && (
         <div style={{
-          marginTop: 8, background: 'var(--bg-elevated)',
-          borderRadius: 'var(--radius-lg)', overflow: 'hidden',
-          boxShadow: 'var(--shadow-md)', border: '1px solid var(--border-subtle)',
+          position: 'fixed', bottom: 152, right: 16,
+          width: 340, maxWidth: 'calc(100vw - 32px)',
+          maxHeight: '60vh', zIndex: 500,
+          background: 'var(--bg-elevated)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-xl)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+          animation: 'fadeInScale 0.25s var(--ease-out-expo)',
         }}>
+          {/* 头部 */}
+          <div style={{
+            padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)',
+            background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span style={{ fontSize: 20 }}>🤖</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#4f46e5' }}>聚会助手 AI</span>
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-tertiary)' }}>DeepSeek</span>
+          </div>
+
           {/* 消息区 */}
           <div ref={scrollRef} style={{
-            maxHeight: 320, overflowY: 'auto', padding: '12px 14px',
-            display: 'flex', flexDirection: 'column', gap: 10,
+            flex: 1, overflowY: 'auto', padding: '12px 14px',
+            display: 'flex', flexDirection: 'column', gap: 8,
+            minHeight: 200,
           }}>
             {messages.map((msg, i) => (
-              <div key={i} style={{
-                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '90%',
-              }}>
-                {/* 消息气泡 */}
-                {msg.text && (
-                  <div style={{
-                    padding: '10px 14px', borderRadius: msg.role === 'user'
-                      ? 'var(--radius-md) var(--radius-md) 4px var(--radius-md)'
-                      : 'var(--radius-md) var(--radius-md) var(--radius-md) 4px',
-                    background: msg.role === 'user'
-                      ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
-                      : 'var(--bg-subtle)',
-                    color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
-                    fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-line',
-                  }}>
-                    {msg.text}
-                  </div>
-                )}
+              <div key={i}>
+                {/* 气泡 */}
+                <div style={{
+                  padding: '10px 14px', borderRadius: msg.role === 'user'
+                    ? 'var(--radius-md) var(--radius-md) 4px var(--radius-md)'
+                    : 'var(--radius-md) var(--radius-md) var(--radius-md) 4px',
+                  background: msg.role === 'user' ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'var(--bg-subtle)',
+                  color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
+                  fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-line',
+                  maxWidth: '100%',
+                  alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                }}>
+                  {msg.text}
+                </div>
 
-                {/* 解析结果卡片 */}
+                {/* 计划卡片 */}
                 {msg.plans && msg.plans.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    {msg.plans.map((plan, j) => (
+                  <div style={{ marginTop: 6 }}>
+                    {msg.plans.map((p, j) => (
                       <div key={j} style={{
-                        padding: '8px 12px', marginBottom: 4,
+                        padding: '6px 10px', marginBottom: 3, fontSize: 11,
                         background: '#f0fdf4', borderRadius: 'var(--radius-sm)',
-                        border: '1px solid #bbf7d0', fontSize: 12,
+                        border: '1px solid #bbf7d0',
                       }}>
-                        <span style={{ fontWeight: 700, color: '#166534' }}>{plan.dateLabel}</span>
+                        <b style={{ color: '#166534' }}>{p.dateLabel}</b>
                         <span style={{ marginLeft: 8, color: '#64748b' }}>
-                          {Object.entries(plan.slots).slice(0, 3).map(([s, a]) => `${s} ${a || '空闲'}`).join(' | ')}
-                          {Object.keys(plan.slots).length > 3 ? ` +${Object.keys(plan.slots).length - 3}` : ''}
+                          {Object.entries(p.slots).length > 0
+                            ? `${Object.keys(p.slots)[0]}~${Object.keys(p.slots)[Object.keys(p.slots).length - 1]}`
+                            : '空闲'}
+                          {' '}{[...new Set(Object.values(p.slots))].join('、')}
                         </span>
                       </div>
                     ))}
                     <button
-                      onClick={handleConfirmPlans}
+                      onClick={() => handleConfirm(msg.plans!)}
                       className="btn-press"
                       style={{
-                        padding: '8px 16px', marginTop: 4,
-                        borderRadius: 'var(--radius-sm)',
-                        border: 'none', cursor: 'pointer',
+                        marginTop: 4, padding: '7px 14px', borderRadius: 'var(--radius-sm)',
+                        border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
                         background: 'linear-gradient(135deg, #10b981, #34d399)',
-                        color: '#fff', fontSize: 13, fontWeight: 700,
-                        boxShadow: '0 2px 8px rgba(16,185,129,0.2)',
+                        color: '#fff', boxShadow: '0 2px 6px rgba(16,185,129,0.2)',
                       }}
-                    >✅ 确认并填入日历</button>
+                    >✅ 确认填入日历</button>
                   </div>
                 )}
 
-                {/* 空闲建议 */}
+                {/* 建议 */}
                 {msg.suggestions && msg.suggestions.length > 0 && (
-                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      💡 你有空闲，其他人：
-                    </div>
-                    {msg.suggestions.slice(0, 3).map((s, j) => (
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {msg.suggestions.map((s, j) => (
                       <div key={j} style={{
                         padding: '6px 10px', borderRadius: 'var(--radius-sm)',
-                        background: '#fffbeb', border: '1px solid #fde68a', fontSize: 11,
+                        background: '#fff7ed', border: '1px solid #fed7aa',
+                        fontSize: 11, color: '#92400e',
                       }}>
-                        <span style={{ fontWeight: 600 }}>{s.dateLabel} {s.timeLabel}</span>
-                        {s.freePeers.length > 0 && (
-                          <span style={{ color: '#16a34a', marginLeft: 6 }}>
-                            ✅ {s.freePeers.join('、')}也空闲
-                          </span>
-                        )}
-                        {s.missingPeers.length > 0 && (
-                          <span style={{ color: '#d97706', marginLeft: 6 }}>
-                            ❓ {s.missingPeers.join('、')}还没签到
-                          </span>
-                        )}
+                        💡 {s.text}
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* 趣闻八卦 */}
+                {/* 趣闻 */}
                 {msg.callouts && msg.callouts.length > 0 && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: '#64748b' }}>
-                    {msg.callouts.map((c, j) => (
-                      <div key={j}>{c}</div>
-                    ))}
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+                    {msg.callouts.map((c, j) => <div key={j}>{c}</div>)}
                   </div>
                 )}
               </div>
             ))}
+
+            {loading && (
+              <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: 8 }}>🤔 思考中...</div>
+            )}
           </div>
 
-          {/* 输入区 */}
-          <div style={{
-            display: 'flex', gap: 6, padding: '10px 14px',
-            borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-subtle)',
-          }}>
+          {/* 输入 */}
+          <div style={{ display: 'flex', gap: 6, padding: '10px 14px', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-subtle)' }}>
             <button
               onClick={startListening}
               className="btn-press"
               style={{
-                width: 40, height: 40, borderRadius: '50%',
-                border: 'none', cursor: 'pointer', flexShrink: 0,
-                background: listening
-                  ? 'linear-gradient(135deg, #ef4444, #f87171)'
-                  : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                color: '#fff', fontSize: 18,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 36, height: 36, borderRadius: '50%', border: 'none', cursor: 'pointer', flexShrink: 0,
+                background: listening ? '#ef4444' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                color: '#fff', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 animation: listening ? 'pulse 1s infinite' : 'none',
               }}
-              title="语音输入"
-            >{listening ? '🔴' : '🎤'}</button>
+            >🎤</button>
             <input
               ref={inputRef}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleSend(input); }}
-              placeholder="说说你的安排，比如：周一到周五上班，周六爬山..."
+              placeholder="说说安排，比如：周一三五上班周二加班..."
               style={{
-                flex: 1, padding: '10px 14px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1.5px solid var(--border-default)',
-                fontSize: 14, outline: 'none',
-                background: 'var(--bg-elevated)',
-                fontFamily: 'var(--font-body)',
+                flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+                border: '1.5px solid var(--border-default)', fontSize: 13, outline: 'none',
+                background: 'var(--bg-elevated)', fontFamily: 'var(--font-body)',
               }}
             />
             <button
               onClick={() => handleSend(input)}
-              disabled={!input.trim()}
+              disabled={!input.trim() || loading}
               className="btn-press"
               style={{
-                padding: '10px 16px', borderRadius: 'var(--radius-sm)',
-                border: 'none', cursor: input.trim() ? 'pointer' : 'not-allowed',
-                background: input.trim()
-                  ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
-                  : 'var(--border-default)',
-                color: '#fff', fontSize: 13, fontWeight: 700,
-                opacity: input.trim() ? 1 : 0.5,
+                padding: '8px 14px', borderRadius: 'var(--radius-sm)', border: 'none',
+                cursor: input.trim() ? 'pointer' : 'not-allowed',
+                background: input.trim() ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'var(--border-default)',
+                color: '#fff', fontSize: 13, fontWeight: 700, opacity: input.trim() ? 1 : 0.5,
               }}
             >发送</button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
