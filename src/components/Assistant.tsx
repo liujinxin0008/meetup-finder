@@ -8,7 +8,7 @@ interface Props {
   group: Group;
   member: string;
   onGroupUpdate: (group: Group) => void;
-  onSuggestions?: (items: { id: string; type: 'invite' | 'callout' | 'nudge'; text: string; peer?: string; icon?: string }[]) => void;
+  onSuggestions?: (items: { id: string; type: 'invite' | 'callout' | 'nudge'; text: string; peer?: string; icon?: string; dateKey?: string; slot?: string; activity?: string }[]) => void;
 }
 
 interface ChatMsg {

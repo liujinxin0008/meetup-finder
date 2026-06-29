@@ -6,12 +6,16 @@ export interface Suggestion {
   text: string;
   peer?: string;
   icon?: string;
+  dateKey?: string;
+  slot?: string;
+  activity?: string;
 }
 
 interface Props {
   suggestions: Suggestion[];
   onDismiss: (id: string) => void;
   onInvite?: (s: Suggestion) => void;
+  onCreateProposal?: (s: Suggestion) => void;
 }
 
 export default function SuggestionPopup({ suggestions, onDismiss, onInvite }: Props) {

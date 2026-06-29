@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Group, TabId, Proposal } from './types';
-import { getGroup, getProposals } from './api';
+import { getGroup, getProposals, createProposal, updateSchedule } from './api';
+import { toDateKey } from './utils/time';
 import { getMonday } from './utils/time';
 import WeekPicker from './components/WeekPicker';
 import MemberPicker from './components/MemberPicker';
@@ -345,7 +346,43 @@ export default function App() {
       )}
 
       {/* ====== AI 建议弹窗 ====== */}
-      <SuggestionPopup suggestions={aiSuggestions} onDismiss={(id) => setAiSuggestions(prev => prev.filter(s => s.id !== id))} />
+      <SuggestionPopup
+        suggestions={aiSuggestions}
+        onDismiss={(id) => setAiSuggestions(prev => prev.filter(s => s.id !== id))}
+        onCreateProposal={async (s) => {
+          if (!group || !selectedMember || !s.peer) return;
+          const todayKey = toDateKey(new Date());
+          const slot = s.slot || '18:00';
+          const endSlot = `${String(parseInt(slot) + 2).padStart(2, '0')}:00`;
+          const dateLabel = new Date().toLocaleDateString('zh-CN', { weekday: 'long', month: 'numeric', day: 'numeric' });
+          try {
+            // 创建邀约
+            const result = await createProposal(group.id, {
+              from: selectedMember,
+              to: [s.peer],
+              dateKey: s.dateKey || todayKey,
+              dateLabel: `${dateLabel}`,
+              startSlot: slot,
+              endSlot: endSlot,
+              activity: s.activity || '吃饭',
+              note: s.text,
+            });
+            // 同时把发起人的日程也填上
+            const daySched = group.schedules[selectedMember]?.[s.dateKey || todayKey] || {};
+            daySched[slot] = s.activity || '吃饭';
+            const newSchedules = { ...group.schedules };
+            if (!newSchedules[selectedMember]) newSchedules[selectedMember] = {};
+            newSchedules[selectedMember][s.dateKey || todayKey] = daySched;
+            const newGroup = await updateSchedule(group.id, selectedMember, s.dateKey || todayKey, daySched);
+            setGroup(newGroup);
+            // 刷新邀约列表
+            const fresh = await getProposals(group.id);
+            setProposals(fresh);
+            setToast('✅ 邀约已发送！');
+            setAiSuggestions(prev => prev.filter(x => x.id !== s.id));
+          } catch { setToast('邀约发送失败'); }
+        }}
+      />
 
       {/* ====== Toast ====== */}
       {toast && (

@@ -3,7 +3,7 @@ import type { Group, Proposal } from '../types';
 import { SCENE_CATEGORIES } from '../types';
 import { matchScene, formatTimeRange } from '../utils/suggestions';
 import { ACTIVITY_CATEGORIES, dpSearch, xhsHomePage, copyKeyword } from '../utils/activities';
-import { respondProposal, createProposal } from '../api';
+import { respondProposal, createProposal, updateSchedule } from '../api';
 
 interface SuggestionsProps {
   group: Group;
@@ -54,7 +54,16 @@ export default function Suggestions({ group, monday, member, proposals, onPropos
             <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>📩 活跃邀约</span>
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{proposals.length}个</span>
           </div>
-          {proposals.map(p => <ProposalItem key={p.id} p={p} member={member} onUpdate={onProposalsUpdate} proposals={proposals} groupId={group.id} />)}
+          {proposals.map(p => <ProposalItem key={p.id} p={p} member={member} onUpdate={onProposalsUpdate} proposals={proposals} groupId={group.id} onAccept={async (p) => {
+            // 接受邀约时自动填入日程
+            const daySched: Record<string, string> = {};
+            const sh = parseInt(p.startSlot);
+            const eh = parseInt(p.endSlot);
+            for (let h = sh; h < eh; h++) daySched[`${String(h).padStart(2, '0')}:00`] = p.activity;
+            try {
+              await updateSchedule(group.id, member, p.dateKey, daySched);
+            } catch {}
+          }} />)}
         </div>
       )}
 
@@ -423,8 +432,9 @@ export default function Suggestions({ group, monday, member, proposals, onPropos
 
 // ── 邀约卡片（内嵌版） ──
 
-function ProposalItem({ p, member, onUpdate, proposals, groupId }: {
+function ProposalItem({ p, member, onUpdate, proposals, groupId, onAccept }: {
   p: Proposal; member: string; onUpdate: (p: Proposal[]) => void; proposals: Proposal[]; groupId: string;
+  onAccept: (p: Proposal) => void;
 }) {
   const [responding, setResponding] = useState(false);
   const isPending = p.responses[member] === 'pending' && p.from !== member;
@@ -435,6 +445,7 @@ function ProposalItem({ p, member, onUpdate, proposals, groupId }: {
     setResponding(true);
     try {
       await respondProposal(groupId, p.id, member, resp);
+      if (resp === 'yes') onAccept(p);
       onUpdate(proposals.map(pp => pp.id === p.id ? { ...pp, responses: { ...pp.responses, [member]: resp } } : pp));
     } catch {}
     setResponding(false);
