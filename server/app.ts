@@ -127,6 +127,42 @@ app.put('/api/groups/:id/mood', async (req, res) => {
   }
 });
 
+// ── 邀约 ──
+
+interface Proposal {
+  id: string; groupId: string; from: string; to: string[];
+  dateKey: string; dateLabel: string; startSlot: string; endSlot: string;
+  activity: string; note: string; responses: Record<string, string>; createdAt: string;
+}
+
+// 内存存邀约（本地开发用）
+const proposalsStore: Map<string, Proposal[]> = new Map();
+
+app.get('/api/groups/:id/proposals', async (req, res) => {
+  res.json(proposalsStore.get(req.params.id) || []);
+});
+
+app.post('/api/groups/:id/proposals', async (req, res) => {
+  const { from, to, dateKey, dateLabel, startSlot, endSlot, activity, note } = req.body;
+  const id = nanoid(10);
+  const responses: Record<string, string> = {};
+  for (const m of to) responses[m] = 'pending';
+  const proposal: Proposal = { id, groupId: req.params.id, from, to, dateKey, dateLabel, startSlot, endSlot, activity, note: note || '', responses, createdAt: new Date().toISOString() };
+  const list = proposalsStore.get(req.params.id) || [];
+  list.push(proposal);
+  proposalsStore.set(req.params.id, list);
+  res.json({ id, responses });
+});
+
+app.put('/api/groups/:id/proposals/:pid', async (req, res) => {
+  const { member, response } = req.body;
+  const list = proposalsStore.get(req.params.id) || [];
+  const p = list.find(x => x.id === req.params.pid);
+  if (!p) return res.status(404).json({ error: '邀约不存在' });
+  p.responses[member] = response;
+  res.json({ responses: p.responses });
+});
+
 // ── AI 助手（DeepSeek） ──
 
 app.post('/api/assistant', async (req, res) => {

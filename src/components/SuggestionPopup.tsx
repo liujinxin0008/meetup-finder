@@ -18,21 +18,22 @@ interface Props {
   onCreateProposal?: (s: Suggestion) => void;
 }
 
-export default function SuggestionPopup({ suggestions, onDismiss, onInvite }: Props) {
+export default function SuggestionPopup({ suggestions, onDismiss, onInvite, onCreateProposal }: Props) {
   return (
     <>
       {suggestions.map((s, i) => (
-        <SuggestionCard key={s.id} suggestion={s} index={i} onDismiss={onDismiss} onInvite={onInvite} />
+        <SuggestionCard key={s.id} suggestion={s} index={i} onDismiss={onDismiss} onInvite={onInvite} onCreateProposal={onCreateProposal} />
       ))}
     </>
   );
 }
 
-function SuggestionCard({ suggestion: s, index, onDismiss, onInvite }: {
+function SuggestionCard({ suggestion: s, index, onDismiss, onInvite, onCreateProposal }: {
   suggestion: Suggestion;
   index: number;
   onDismiss: (id: string) => void;
   onInvite?: (s: Suggestion) => void;
+  onCreateProposal?: (s: Suggestion) => void;
 }) {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -83,15 +84,15 @@ function SuggestionCard({ suggestion: s, index, onDismiss, onInvite }: {
             {s.text}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            {onInvite && (
-              <button onClick={() => onInvite(s)} className="btn-press"
+            {(onInvite || onCreateProposal) && (
+              <button onClick={() => (onCreateProposal || onInvite)!(s)} className="btn-press"
                 style={{
                   flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
                   border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
                   background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                   color: '#fff',
                 }}
-              >📩 邀约</button>
+              >📩 发起邀约</button>
             )}
             <button onClick={handleDismiss} className="btn-press"
               style={{
