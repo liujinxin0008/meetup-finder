@@ -160,7 +160,7 @@ function matchHolidayTrip(
   const results: SceneSuggestion[] = [];
 
   // 只统计白天的时段（8:00-20:00），出来玩不算晚上睡觉时间
-  const DAYTIME_SLOTS = new Set(
+  const DAYTIME_SLOTS = new Set<string>(
     TIME_SLOTS.filter(s => {
       const h = slotToHour(s);
       return h >= 8 && h < 20;
